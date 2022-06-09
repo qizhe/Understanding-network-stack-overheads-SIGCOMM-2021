@@ -4,9 +4,9 @@ DIR=$(realpath $(dirname $(readlink -f $0))/../..)
 
 # Parse arguments
 # Example: ./single-flow.sh 128.84.155.115 192.168.10.115 enp37s0f1
-public_dst_ip=${1:-128.84.155.115}
-device_dst_ip=${2:-192.168.10.115}
-iface=${3:-enp37s0f1}
+public_dst_ip=${1:-128.84.155.133}
+device_dst_ip=${2:-192.168.10.117}
+iface=${3:-ens2f0}
 results_dir=${4:-$DIR/results}
 
 # Create results directory

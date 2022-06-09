@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument('--sock-size', action='store_true', default=None, help='Increase socket read/write memory limits.')
     parser.add_argument('--dca', type=int, default=None, help='Set the number of cache ways DCA/DDIO can use.')
     parser.add_argument('--ring-buffer', type=int, default=None, help='Set the size of the RX/TX ring buffer.')
+    parser.add_argument('--mptcp', action='store_true', default=None, help='Measure MPTCP.')
 
     # Parse offload parameters
     parser.add_argument('--gro', action='store_true', default=None, help='Enables GRO.')
@@ -102,11 +103,12 @@ def parse_args():
                 print("Can't set --affinity outside of [0, {}].".format(MAX_CPUS))
                 exit(1)
         else:
-            if args.config in single_cpu_configs:
-                args.affinity = [1]
+            if args.config in single_cpu_configs and not args.mptcp:
+                args.affinity = [4]
             elif args.config in multiple_cpu_configs:
                 args.affinity = [(cpu + 1) % MAX_CPUS for cpu in CPUS]
-
+            else:
+                args.affinity = [4]
     if args.mtu is not None and not (0 < args.mtu <= 9000):
         print("Can't set values of --mtu outside of (0, 9000] bytes.")
         exit(1)
@@ -157,6 +159,11 @@ def ntuple_send_port_to_queue(iface, port, n, loc):
     os.system("ethtool -U {} flow-type tcp4 dst-port {} action {} loc {}".format(iface, port, n, loc))
     os.system("ethtool -U {} flow-type tcp4 src-port {} action {} loc {}".format(iface, port, n, MAX_RULE_LOC - loc))
 
+def ntuple_send_port_to_queue_mptcp(iface, port, n, loc):
+    os.system("ethtool -U {} flow-type tcp4 src-port {} action {} loc {}".format(iface, port, n, loc))
+
+def ntuple_recv_port_to_queue_mptcp(iface, port, n, loc):
+    os.system("ethtool -U {} flow-type tcp4 dst-port {} action {} loc {}".format(iface, port, n, loc))
 
 def ntuple_send_all_traffic_to_queue(iface, n, loc):
     os.system("ethtool -U {} flow-type tcp4 action {} loc {}".format(iface, n, loc))
@@ -176,7 +183,7 @@ def setup_irq_mode_arfs(iface):
     ntuple_clear_rules(iface)
 
 
-def setup_irq_mode_no_arfs_sender(affinity, iface, flow_type, config):
+def setup_irq_mode_no_arfs_sender(affinity, iface, flow_type, config, mptcp = False):
     stop_irq_balance()
     manage_rps(iface, False)
     ntuple_clear_rules(iface)
@@ -185,7 +192,7 @@ def setup_irq_mode_no_arfs_sender(affinity, iface, flow_type, config):
     # For single flow or outcast, we have to send all traffic to core 1;
     # for one-to-one and outcast, we use flow steering to the next core;
     # otherwise we just use RSS
-    if config in ["outcast", "single"]:
+    if config in ["outcast", "single"] and len(affinity) > 0 and not mptcp:
         manage_ntuple(iface, True)
         ntuple_send_all_traffic_to_queue(iface, CPU_TO_RX_QUEUE_MAP[affinity[0]], 0)
     elif config in ["incast", "one-to-one"]:
@@ -193,11 +200,23 @@ def setup_irq_mode_no_arfs_sender(affinity, iface, flow_type, config):
         for n, cpu in enumerate(affinity):
             q = CPU_TO_RX_QUEUE_MAP[cpu]
             ntuple_send_port_to_queue(iface, BASE_PORT + n, q, n)
+    elif mptcp:
+        manage_ntuple(iface, True)
+        cpu = 4
+        port = 10000
+        loc = 0
+        while port < 10000 + 1024:
+            q = CPU_TO_RX_QUEUE_MAP[cpu]
+            cpu =  (cpu + 4) % 24 + 4
+            ntuple_send_port_to_queue_mptcp(iface, port, q, loc)
+            port += 1
+            loc += 1
+            print("get rule")
     else:
         manage_ntuple(iface, False)
 
 
-def setup_irq_mode_no_arfs_receiver(affinity, iface, flow_type, config):
+def setup_irq_mode_no_arfs_receiver(affinity, iface, flow_type, config, mptcp = False):
     stop_irq_balance()
     manage_rps(iface, False)
     ntuple_clear_rules(iface)
@@ -206,17 +225,28 @@ def setup_irq_mode_no_arfs_receiver(affinity, iface, flow_type, config):
     # For single flow or incast, we have to send all traffic to core 1;
     # for one-to-one and outcast, we use flow steering to next core;
     # otherwise we just use RSS
-    if config in ["incast", "single"]:
+    if config in ["incast", "single"] and len(affinity) > 0 and not mptcp:
         manage_ntuple(iface, True)
         ntuple_send_all_traffic_to_queue(iface, CPU_TO_RX_QUEUE_MAP[affinity[0]], 0)
     elif config in ["outcast", "one-to-one"]:
         manage_ntuple(iface, True)
         for n, cpu in enumerate(affinity):
             q = CPU_TO_RX_QUEUE_MAP[cpu]
-            ntuple_send_port_to_queue(iface, BASE_PORT + n, q, n)
+            ntuple_recv_port_to_queue_mptcp(iface, BASE_PORT + n, q, n)
+    elif mptcp:
+        manage_ntuple(iface, True)
+        cpu = 4
+        port = 10000
+        loc = 0
+        while port < 10000 + 1024:
+            q = CPU_TO_RX_QUEUE_MAP[cpu]
+            cpu =  (cpu + 4) % 24 + 4
+            ntuple_send_port_to_queue_mptcp(iface, port, q, loc)   
+            port += 1
+            loc += 1
+            print("get rule")
     else:
         manage_ntuple(iface, False)
-
 
 def setup_affinity_mode(affinity, iface, arfs, sender, receiver, flow_type, config):
     if arfs is not None:

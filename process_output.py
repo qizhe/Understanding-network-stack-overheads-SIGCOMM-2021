@@ -16,14 +16,14 @@ def process_throughput_output(lines):
     num_samples = 0
 
     # Get last 10 secs throughput (exclude the last second)
-    lines = lines[-12:-2]
+    lines = lines[-17:-7]
     for line in lines:
         elements = line.split()
-        if len(elements) > 2 and elements[-1] == "Gbits/sec":
-            throughput += float(elements[-2])
+        if len(elements) > 8 and elements[7] == "Gbits/sec":
+            throughput += float(elements[6])
             num_samples += 1
-        elif len(elements) > 2 and elements[-1] == "Mbits/sec":
-            throughput += float(elements[-2]) / 1000
+        elif len(elements) > 8 and elements[7] == "Mbits/sec":
+            throughput += float(elements[6]) / 1000
             num_samples += 1
 
     # Return the average throughput

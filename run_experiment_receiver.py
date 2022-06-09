@@ -52,7 +52,8 @@ def parse_args():
     parser.add_argument("--latency", action="store_true", help="Calculate the average data copy latency for each packet.")
     parser.add_argument("--skb-hist", action="store_true", help="Record the skb sizes histogram.")
     parser.add_argument("--verbose", action="store_true", help="Print extra output.")
-
+    parser.add_argument('--mptcp', action='store_true', default=None, help='Measure MPTCP.')
+    
     # Parse and verify arguments
     args = parser.parse_args()
 
@@ -107,7 +108,10 @@ def parse_args():
             exit(1)
     elif not args.arfs:
         if args.config in ["incast", "single"]:
-            args.affinity = [1]
+            if args.mptcp:
+                args.affinity = list(range(MAX_CPUS))
+            else:
+                args.affinity = [4]
         elif args.config in ["outcast", "one-to-one"]:
             args.affinity = [cpu + 1 for cpu in args.cpus]
         elif args.config == "all-to-all":
@@ -186,7 +190,7 @@ server.register_function(get_results)
 
 # Convenience functions
 def clear_processes():
-    os.system("pkill iperf")
+    os.system("pkill iperf3")
     os.system("pkill netserver")
     os.system("pkill netperf")
     os.system("pkill perf")
@@ -195,9 +199,9 @@ def clear_processes():
 
 def run_iperf(cpu, port, window):
     if window is None:
-        args = ["taskset", "-c", str(cpu), "iperf", "-i", "1", "-s", "-p", str(port)]
+        args = ["taskset", "-c", str(cpu), "iperf3", "-i", "1", "-s", "-p", str(port)]
     else:
-        args = ["taskset", "-c", str(cpu), "iperf", "-s", "-i", "1", "-p", str(port), "-w", str(window / 2) + "K"]
+        args = ["taskset", "-c", str(cpu), "iperf3", "-s", "-i", "1", "-p", str(port), "-w", str(window / 2) + "K"]
 
     return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, universal_newlines=True)
 
